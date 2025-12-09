@@ -1,59 +1,588 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Tukar Wajah AI</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tukar Wajah AI - Face Swap</title>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/face-api.js/0.22.2/face-api.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    <!-- PWA manifest (opsional) -->
-    <link rel="manifest" href="manifest.json" />
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
 
-    <!-- Style -->
-    <link rel="stylesheet" href="style.css" />
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
 
-    <!-- face-api (AI) dan Delaunator (triangulation) -->
-    <!-- Urutan penting: face-api dulu, lalu delaunator, lalu script.js -->
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
-    <script defer src="https://unpkg.com/delaunator@5.0.0/delaunator.min.js"></script>
-    <script defer src="script.js"></script>
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .upload-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .upload-box {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .upload-box:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
+        }
+
+        .upload-box h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .upload-box p {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .file-label:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .preview-container {
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .preview-container img {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .remove-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .remove-btn:hover {
+            background: rgba(255, 0, 0, 1);
+            transform: scale(1.1);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .result-section {
+            margin-top: 40px;
+            padding: 30px;
+            background: #f8f9ff;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        .result-section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        #resultCanvas {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .status-message.active {
+            display: block;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9ff;
+            color: #666;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            display: none;
+            margin: 20px auto;
+        }
+
+        .download-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(17, 153, 142, 0.4);
+        }
+
+        @media (max-width: 768px) {
+            .upload-section {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
 </head>
-
 <body>
-    <header>
-        <h1>Tukar Wajah Web</h1>
-        <p>Aplikasi AI untuk menukar wajah langsung di browser.</p>
-    </header>
+    <div class="container">
+        <header>
+            <h1>🎭 Tukar Wajah AI</h1>
+            <p>Aplikasi AI untuk menukar wajah langsung di browser Anda</p>
+        </header>
 
-    <main>
-        <div class="upload-section">
-            <div>
-                <label>Foto Sumber (Wajah Asli):</label>
-                <input type="file" id="sourceImage" accept="image/*" />
-                <img id="previewSource" class="preview" alt="Preview Sumber" />
+        <div class="content">
+            <div class="upload-section">
+                <div class="upload-box">
+                    <h3>📸 Foto Sumber</h3>
+                    <p>Upload wajah yang ingin Anda salin</p>
+                    <label for="sourceImage" class="file-label">Pilih Foto Sumber</label>
+                    <input type="file" id="sourceImage" accept="image/*">
+                    <div id="sourcePreview" class="preview-container"></div>
+                </div>
+
+                <div class="upload-box">
+                    <h3>🎯 Foto Target</h3>
+                    <p>Upload foto yang wajahnya akan diganti</p>
+                    <label for="targetImage" class="file-label">Pilih Foto Target</label>
+                    <input type="file" id="targetImage" accept="image/*">
+                    <div id="targetPreview" class="preview-container"></div>
+                </div>
             </div>
 
-            <div>
-                <label>Foto Target (Wajah Akan Diganti):</label>
-                <input type="file" id="targetImage" accept="image/*" />
-                <img id="previewTarget" class="preview" alt="Preview Target" />
+            <div class="status-message" id="statusMessage"></div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Sedang memproses... Mohon tunggu</p>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" id="swapBtn" disabled>
+                    ✨ Tukar Wajah
+                </button>
+                <button class="btn btn-secondary" id="resetBtn">
+                    🔄 Reset Semua
+                </button>
+            </div>
+
+            <div class="result-section">
+                <h2>📊 Hasil Tukar Wajah</h2>
+                <canvas id="resultCanvas"></canvas>
+                <button class="btn btn-primary download-btn" id="downloadBtn">
+                    ⬇️ Download Hasil
+                </button>
             </div>
         </div>
 
-        <div class="controls">
-            <button id="swapBtn" class="btn">Tukar Wajah</button>
-            <button id="clearBtn" class="btn" style="background:#555;margin-left:8px;">Bersihkan</button>
-        </div>
+        <footer>
+            <p>© 2025 Tukar Wajah AI — Berjalan sepenuhnya di browser Anda</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Privasi terjamin: Tidak ada data yang dikirim ke server</p>
+        </footer>
+    </div>
 
-        <div id="resultContainer">
-            <h2>Hasil:</h2>
-            <canvas id="resultCanvas"></canvas>
-        </div>
+    <script>
+        let sourceImg = null;
+        let targetImg = null;
+        let modelsLoaded = false;
 
-        <p class="note">Catatan: model face-api dimuat dari CDN pada pemakaian pertama. Pastikan koneksi internet.</p>
-    </main>
+        // Load face-api models
+        async function loadModels() {
+            try {
+                showStatus('Memuat model AI...', 'info');
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+                
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                
+                modelsLoaded = true;
+                showStatus('Model AI berhasil dimuat! Silakan upload gambar.', 'success');
+                console.log('Models loaded successfully');
+            } catch (error) {
+                showStatus('Gagal memuat model AI. Periksa koneksi internet Anda.', 'error');
+                console.error('Error loading models:', error);
+            }
+        }
 
-    <footer>
-        <p>© 2025 Tukar Wajah AI — Berjalan tanpa server & tanpa API key.</p>
-    </footer>
+        // Show status message
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status-message active ${type}`;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusEl.classList.remove('active');
+                }, 5000);
+            }
+        }
+
+        // Handle image upload
+        function handleImageUpload(inputId, previewId, imgVariable) {
+            const input = document.getElementById(inputId);
+            const preview = document.getElementById(previewId);
+            
+            input.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            if (imgVariable === 'source') {
+                                sourceImg = img;
+                            } else {
+                                targetImg = img;
+                            }
+                            
+                            preview.innerHTML = `
+                                <img src="${event.target.result}" alt="Preview">
+                                <button class="remove-btn" onclick="removeImage('${imgVariable}')">×</button>
+                            `;
+                            
+                            checkReadyToSwap();
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        // Remove image
+        function removeImage(type) {
+            if (type === 'source') {
+                sourceImg = null;
+                document.getElementById('sourcePreview').innerHTML = '';
+                document.getElementById('sourceImage').value = '';
+            } else {
+                targetImg = null;
+                document.getElementById('targetPreview').innerHTML = '';
+                document.getElementById('targetImage').value = '';
+            }
+            checkReadyToSwap();
+        }
+
+        // Check if ready to swap
+        function checkReadyToSwap() {
+            const swapBtn = document.getElementById('swapBtn');
+            swapBtn.disabled = !(sourceImg && targetImg && modelsLoaded);
+        }
+
+        // Face swap function
+        async function swapFaces() {
+            const loading = document.getElementById('loading');
+            const canvas = document.getElementById('resultCanvas');
+            const ctx = canvas.getContext('2d');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            try {
+                loading.classList.add('active');
+                showStatus('Mendeteksi wajah...', 'info');
+
+                // Detect faces
+                const sourceDetection = await faceapi
+                    .detectSingleFace(sourceImg)
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+                
+                const targetDetection = await faceapi
+                    .detectSingleFace(targetImg)
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+
+                if (!sourceDetection) {
+                    throw new Error('Wajah tidak terdeteksi pada foto sumber');
+                }
+                
+                if (!targetDetection) {
+                    throw new Error('Wajah tidak terdeteksi pada foto target');
+                }
+
+                showStatus('Memproses penukaran wajah...', 'info');
+
+                // Set canvas size to target image
+                canvas.width = targetImg.width;
+                canvas.height = targetImg.height;
+                
+                // Draw target image
+                ctx.drawImage(targetImg, 0, 0);
+
+                // Get face landmarks
+                const sourceLandmarks = sourceDetection.landmarks;
+                const targetLandmarks = targetDetection.landmarks;
+
+                // Calculate face region
+                const targetBox = targetDetection.detection.box;
+                const sourceBox = sourceDetection.detection.box;
+
+                // Create temporary canvas for source face
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Increase size for better blending
+                const padding = 30;
+                tempCanvas.width = sourceBox.width + padding * 2;
+                tempCanvas.height = sourceBox.height + padding * 2;
+
+                // Draw source face with padding
+                tempCtx.drawImage(
+                    sourceImg,
+                    sourceBox.x - padding,
+                    sourceBox.y - padding,
+                    sourceBox.width + padding * 2,
+                    sourceBox.height + padding * 2,
+                    0,
+                    0,
+                    tempCanvas.width,
+                    tempCanvas.height
+                );
+
+                // Apply feathering/blending
+                ctx.save();
+                ctx.globalAlpha = 0.9;
+                
+                // Draw swapped face
+                ctx.drawImage(
+                    tempCanvas,
+                    targetBox.x - padding,
+                    targetBox.y - padding,
+                    targetBox.width + padding * 2,
+                    targetBox.height + padding * 2
+                );
+                
+                ctx.restore();
+
+                // Blend edges
+                const gradient = ctx.createRadialGradient(
+                    targetBox.x + targetBox.width / 2,
+                    targetBox.y + targetBox.height / 2,
+                    Math.min(targetBox.width, targetBox.height) / 3,
+                    targetBox.x + targetBox.width / 2,
+                    targetBox.y + targetBox.height / 2,
+                    Math.max(targetBox.width, targetBox.height) / 2
+                );
+                gradient.addColorStop(0, 'rgba(0,0,0,0)');
+                gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+
+                canvas.style.display = 'block';
+                downloadBtn.style.display = 'inline-flex';
+                
+                showStatus('Penukaran wajah berhasil!', 'success');
+                
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+                console.error('Face swap error:', error);
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        // Download result
+        function downloadResult() {
+            const canvas = document.getElementById('resultCanvas');
+            const link = document.createElement('a');
+            link.download = 'face-swap-result.png';
+            link.href = canvas.toDataURL();
+            link.click();
+            showStatus('Gambar berhasil diunduh!', 'success');
+        }
+
+        // Reset all
+        function resetAll() {
+            sourceImg = null;
+            targetImg = null;
+            document.getElementById('sourceImage').value = '';
+            document.getElementById('targetImage').value = '';
+            document.getElementById('sourcePreview').innerHTML = '';
+            document.getElementById('targetPreview').innerHTML = '';
+            document.getElementById('resultCanvas').style.display = 'none';
+            document.getElementById('downloadBtn').style.display = 'none';
+            document.getElementById('statusMessage').classList.remove('active');
+            checkReadyToSwap();
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            loadModels();
+            handleImageUpload('sourceImage', 'sourcePreview', 'source');
+            handleImageUpload('targetImage', 'targetPreview', 'target');
+            
+            document.getElementById('swapBtn').addEventListener('click', swapFaces);
+            document.getElementById('resetBtn').addEventListener('click', resetAll);
+            document.getElementById('downloadBtn').addEventListener('click', downloadResult);
+        });
+    </script>
 </body>
 </html>
