@@ -1,0 +1,96 @@
+/* Reset */
+body, h1, h2, p {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+}
+
+body {
+    background: #111;
+    color: white;
+    text-align: center;
+    padding: 20px;
+}
+
+header {
+    margin-bottom: 25px;
+}
+
+h1 {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+p {
+    opacity: 0.8;
+}
+
+/* Upload section */
+.upload-section {
+    display: flex;
+    justify-content: center;
+    gap: 25px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.upload-section div {
+    background: #1a1a1a;
+    padding: 15px;
+    border-radius: 10px;
+    width: 250px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+input[type="file"] {
+    width: 100%;
+}
+
+.preview {
+    width: 100%;
+    margin-top: 10px;
+    border-radius: 8px;
+    display: none;
+}
+
+/* Button */
+.btn {
+    margin-top: 25px;
+    background: #0099ff;
+    border: none;
+    padding: 12px 25px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+    color: white;
+    transition: 0.3s;
+}
+
+.btn:hover {
+    background: #0077cc;
+}
+
+/* Result area */
+#resultContainer {
+    margin-top: 30px;
+}
+
+#resultCanvas {
+    margin-top: 15px;
+    max-width: 100%;
+    border-radius: 10px;
+    background: #000;
+    min-height: 200px;
+}
+
+/* Footer */
+footer {
+    margin-top: 40px;
+    opacity: 0.7;
+    font-size: 13px;
+}
