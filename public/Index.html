@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tukar Wajah - Web</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div class="app">
+    <h1>Tukar Wajah (Demo)</h1>
+
+    <div class="row">
+      <div class="card">
+        <h3>Foto Sumber</h3>
+        <input id="fileSrc" type="file" accept="image/*">
+        <img id="imgSrc" alt="sumber" />
+      </div>
+
+      <div class="card">
+        <h3>Foto Target</h3>
+        <input id="fileDst" type="file" accept="image/*">
+        <img id="imgDst" alt="target" />
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btnSwap">Tukar Wajah</button>
+      <button id="btnClear">Bersihkan</button>
+    </div>
+
+    <div class="result">
+      <h3>Hasil</h3>
+      <canvas id="out"></canvas>
+    </div>
+
+    <p class="note">Model dimuat dari CDN saat pertama kali digunakan (butuh internet).</p>
+  </div>
+
+  <!-- face-api via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script src="/src/script.js"></script>
+</body>
+</html>
