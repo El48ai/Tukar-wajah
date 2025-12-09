@@ -1,209 +1,246 @@
-// script.js (versi triangulation + affine warp)
-// Pastikan face-api.js dan delaunator sudah dimuat di index.html sebelum script ini
+// script.js - logic utama face-swap
+// Pastikan index.html memuat face-api.js sebelum file ini (defer)
 
-const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models/';
+let sourceImg = null;
+let targetImg = null;
+let modelsLoaded = false;
 
-const sourceInput = document.getElementById('sourceImage');
-const targetInput = document.getElementById('targetImage');
-const previewSource = document.getElementById('previewSource');
-const previewTarget = document.getElementById('previewTarget');
-const swapBtn = document.getElementById('swapBtn');
-const resultCanvas = document.getElementById('resultCanvas');
+// Helper DOM
+const sourceInput = () => document.getElementById('sourceImage');
+const targetInput = () => document.getElementById('targetImage');
+const sourcePreview = () => document.getElementById('sourcePreview');
+const targetPreview = () => document.getElementById('targetPreview');
+const swapBtn = () => document.getElementById('swapBtn');
+const resetBtn = () => document.getElementById('resetBtn');
+const downloadBtn = () => document.getElementById('downloadBtn');
+const statusEl = () => document.getElementById('statusMessage');
+const loadingEl = () => document.getElementById('loading');
+const loadingText = () => document.getElementById('loadingText');
+const featherRange = () => document.getElementById('featherRange');
+const canvasEl = () => document.getElementById('resultCanvas');
 
-let srcLoaded = false;
-let dstLoaded = false;
-
-// Load face-api models
-async function ensureModels() {
-  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
-  console.log('models loaded');
-}
-
-// helper: load file into img element and force natural size for correct coordinates
-function fileToImage(file, imgElement, onLoadCb) {
-  imgElement.src = URL.createObjectURL(file);
-  imgElement.style.display = 'block';
-  imgElement.onload = () => {
-    // force img element to use natural size (important for landmark coordinates)
-    imgElement.width = imgElement.naturalWidth;
-    imgElement.height = imgElement.naturalHeight;
-    URL.revokeObjectURL(imgElement.src);
-    if (onLoadCb) onLoadCb();
-  };
-}
-
-sourceInput.onchange = (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  fileToImage(f, previewSource, () => { srcLoaded = true; resizeCanvasToTarget(); });
-};
-
-targetInput.onchange = (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  fileToImage(f, previewTarget, () => { dstLoaded = true; resizeCanvasToTarget(); });
-};
-
-function resizeCanvasToTarget() {
-  if (!dstLoaded) return;
-  resultCanvas.width = previewTarget.naturalWidth || previewTarget.width;
-  resultCanvas.height = previewTarget.naturalHeight || previewTarget.height;
-}
-
-// matrix inverse for 3x3 (array of 3 rows, each row is length 3)
-function invert3x3(m) {
-  const a = m[0][0], b = m[0][1], c = m[0][2];
-  const d = m[1][0], e = m[1][1], f = m[1][2];
-  const g = m[2][0], h = m[2][1], i = m[2][2];
-  const A =   e*i - f*h;
-  const B = -(d*i - f*g);
-  const C =   d*h - e*g;
-  const D = -(b*i - c*h);
-  const E =   a*i - c*g;
-  const F = -(a*h - b*g);
-  const G =   b*f - c*e;
-  const H = -(a*f - c*d);
-  const I =   a*e - b*d;
-  const det = a*A + b*B + c*C;
-  if (Math.abs(det) < 1e-8) return null;
-  const invDet = 1 / det;
-  return [
-    [A*invDet, D*invDet, G*invDet],
-    [B*invDet, E*invDet, H*invDet],
-    [C*invDet, F*invDet, I*invDet],
-  ];
-}
-
-// multiply 3x3 (S) by 3x2 (D) -> result 3x2
-function mul3x3_3x2(invS, Drows) {
-  // invS is 3x3, Drows is 3 rows of [dx,dy]
-  const res = [[0,0],[0,0],[0,0]];
-  for (let r=0;r<3;r++){
-    for (let col=0;col<2;col++){
-      res[r][col] = invS[r][0]*Drows[0][col] + invS[r][1]*Drows[1][col] + invS[r][2]*Drows[2][col];
-    }
-  }
-  return res; // 3x2
-}
-
-// compute affine transform parameters mapping srcTri -> dstTri
-// returns object {a,b,c,d,e,f} for ctx.setTransform(a,b,c,d,e,f)
-function computeAffineParams(srcTri, dstTri) {
-  // construct S (3x3) with rows [sx, sy, 1]
-  const S = [
-    [srcTri[0][0], srcTri[0][1], 1],
-    [srcTri[1][0], srcTri[1][1], 1],
-    [srcTri[2][0], srcTri[2][1], 1]
-  ];
-  const D = [
-    [dstTri[0][0], dstTri[0][1]],
-    [dstTri[1][0], dstTri[1][1]],
-    [dstTri[2][0], dstTri[2][1]]
-  ];
-  const invS = invert3x3(S);
-  if (!invS) return null;
-  const M = mul3x3_3x2(invS, D); // 3x2 rows
-  // M rows: [m11,m12],[m21,m22],[m31,m32]
-  const a = M[0][0], b = M[0][1];
-  const c = M[1][0], d = M[1][1];
-  const e = M[2][0], f = M[2][1];
-  return {a,b,c,d,e,f};
-}
-
-// triangulation + warp
-async function doWarpSwap() {
-  if (!srcLoaded || !dstLoaded) {
-    alert('Pilih kedua foto terlebih dahulu.');
-    return;
-  }
-  swapBtn.disabled = true;
+// ---------------- models ----------------
+async function loadModels() {
   try {
-    // ensure models loaded
-    await ensureModels();
+    setStatus('Memuat model AI...', 'info');
+    // MODEL URL publik (workable)
+    const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models/';
+    await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.4 });
-    const [resSrc, resDst] = await Promise.all([
-      faceapi.detectSingleFace(previewSource, opts).withFaceLandmarks(true),
-      faceapi.detectSingleFace(previewTarget, opts).withFaceLandmarks(true)
+    modelsLoaded = true;
+    setStatus('Model AI dimuat. Silakan unggah gambar.', 'success');
+    checkReadyToSwap();
+  } catch (err) {
+    console.error('Load models error', err);
+    setStatus('Gagal memuat model. Periksa koneksi internet.', 'error');
+  }
+}
+
+// ---------------- UI helpers ----------------
+function setStatus(text, type = 'info') {
+  const el = statusEl();
+  el.textContent = text;
+  el.className = `status ${type}`;
+}
+function showLoading(on, text = '') {
+  const el = loadingEl();
+  if (on) {
+    el.classList.add('active');
+    if (text) loadingText().textContent = text;
+  } else {
+    el.classList.remove('active');
+  }
+}
+
+// ---------------- file handling ----------------
+function handleFileInput(inputEl, previewEl, which) {
+  inputEl.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        // Simpan reference image (HTMLImageElement) untuk face-api
+        if (which === 'source') sourceImg = img;
+        else targetImg = img;
+
+        previewEl.innerHTML = `
+          <img src="${ev.target.result}" alt="preview" />
+          <button class="remove-btn" onclick="removeImage('${which}')">×</button>
+        `;
+        checkReadyToSwap();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+window.removeImage = function(type) {
+  if (type === 'source') {
+    sourceImg = null;
+    sourcePreview().innerHTML = '';
+    sourceInput().value = '';
+  } else {
+    targetImg = null;
+    targetPreview().innerHTML = '';
+    targetInput().value = '';
+  }
+  checkReadyToSwap();
+};
+
+// ---------------- readiness ----------------
+function checkReadyToSwap() {
+  swapBtn().disabled = !(sourceImg && targetImg && modelsLoaded);
+}
+
+// ---------------- main swap logic ----------------
+async function swapFaces() {
+  try {
+    showLoading(true, 'Mendeteksi wajah...');
+    setStatus('Mendeteksi wajah...', 'info');
+
+    // opsi deteksi (sensitivitas)
+    const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.45 });
+
+    // jalankan deteksi parallel
+    const [sDet, tDet] = await Promise.all([
+      faceapi.detectSingleFace(sourceImg, options).withFaceLandmarks(),
+      faceapi.detectSingleFace(targetImg, options).withFaceLandmarks()
     ]);
-    if (!resSrc || !resDst) {
-      alert('Wajah tidak terdeteksi di salah satu foto.');
-      swapBtn.disabled = false;
-      return;
-    }
 
-    // get landmarks arrays [ [x,y], ... ]
-    const srcPts = resSrc.landmarks.positions.map(p => [p.x, p.y]);
-    const dstPts = resDst.landmarks.positions.map(p => [p.x, p.y]);
+    if (!sDet) throw new Error('Wajah tidak terdeteksi pada foto sumber.');
+    if (!tDet) throw new Error('Wajah tidak terdeteksi pada foto target.');
 
-    // triangulate on destination points (so triangles fit target)
-    const delaunay = Delaunator.from(dstPts);
-    const triangles = delaunay.triangles; // flat array of indices (triples)
+    setStatus('Memproses penukaran...', 'info');
 
-    // prepare canvas
-    resizeCanvasToTarget();
-    const ctx = resultCanvas.getContext('2d');
-    // draw target as base
-    ctx.clearRect(0,0,resultCanvas.width,resultCanvas.height);
-    ctx.drawImage(previewTarget, 0, 0, resultCanvas.width, resultCanvas.height);
+    // canvas target
+    const canvas = canvasEl();
+    const ctx = canvas.getContext('2d');
 
-    // For each triangle, compute affine and draw warped triangle from source
-    for (let t = 0; t < triangles.length; t += 3) {
-      const i0 = triangles[t], i1 = triangles[t+1], i2 = triangles[t+2];
-      // skip triangles that reference points outside 68-landmarks (defensive)
-      if (i0 >= srcPts.length || i1 >= srcPts.length || i2 >= srcPts.length) continue;
+    // set ukuran canvas sesuai target image natural size
+    canvas.width = targetImg.naturalWidth;
+    canvas.height = targetImg.naturalHeight;
 
-      const srcTri = [ srcPts[i0], srcPts[i1], srcPts[i2] ];
-      const dstTri = [ dstPts[i0], dstPts[i1], dstPts[i2] ];
+    // draw full target as base
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(targetImg, 0, 0, canvas.width, canvas.height);
 
-      // compute bounding box of dst triangle; small optimization: if triangle tiny skip
-      const minX = Math.min(dstTri[0][0], dstTri[1][0], dstTri[2][0]);
-      const minY = Math.min(dstTri[0][1], dstTri[1][1], dstTri[2][1]);
-      const maxX = Math.max(dstTri[0][0], dstTri[1][0], dstTri[2][0]);
-      const maxY = Math.max(dstTri[0][1], dstTri[1][1], dstTri[2][1]);
-      if (maxX - minX < 1 || maxY - minY < 1) continue;
+    // ambil box & padding adaptif
+    const sBox = sDet.detection.box;
+    const tBox = tDet.detection.box;
 
-      // compute affine params
-      const params = computeAffineParams(srcTri, dstTri);
-      if (!params) continue;
+    const paddingFactor = 0.45; // bisa diatur
+    const sPadding = Math.round(Math.max(sBox.width, sBox.height) * paddingFactor);
 
-      // draw: clip to dst triangle, set transform to map source->dst, draw source image
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(dstTri[0][0], dstTri[0][1]);
-      ctx.lineTo(dstTri[1][0], dstTri[1][1]);
-      ctx.lineTo(dstTri[2][0], dstTri[2][1]);
-      ctx.closePath();
-      ctx.clip();
+    const tempW = Math.round(sBox.width + sPadding * 2);
+    const tempH = Math.round(sBox.height + sPadding * 2);
 
-      // set transform so that coordinates in source image map to destination positions
-      ctx.setTransform(params.a, params.b, params.c, params.d, params.e, params.f);
-      // draw entire source image (transform maps the correct region)
-      ctx.drawImage(previewSource, 0, 0);
+    // canvas sementara untuk wajah sumber yang sudah dicrop
+    const temp = document.createElement('canvas');
+    temp.width = tempW; temp.height = tempH;
+    const tctx = temp.getContext('2d');
 
-      // reset transform / restore clipping
-      ctx.setTransform(1,0,0,1,0,0);
-      ctx.restore();
-    }
+    tctx.drawImage(
+      sourceImg,
+      sBox.x - sPadding,
+      sBox.y - sPadding,
+      sBox.width + sPadding * 2,
+      sBox.height + sPadding * 2,
+      0,0,tempW,tempH
+    );
 
-    // optional: simple feathering around face edges
-    // create soft mask using dst landmarks jaw to slightly blend edges
-    // This is a simple approach: draw the warped output into a temporary canvas,
-    // then blend with the base target using globalAlpha (already done per-triangle above).
-    // For better blending use Poisson blending (not implemented here).
+    // buat mask feather di tempMask
+    const mask = document.createElement('canvas');
+    mask.width = tempW; mask.height = tempH;
+    const mctx = mask.getContext('2d');
 
-    alert('Selesai — hasil lebih rapi dari versi sederhana. Untuk hasil terbaik, perlu Poisson blending.');
+    // radial gradient putih -> transparent
+    const cx = tempW/2, cy = tempH/2;
+    const r0 = Math.min(sBox.width, sBox.height) * 0.15;
+    // r1 dikontrol oleh range feather
+    const featherVal = parseFloat(featherRange().value); // 0..1
+    const r1 = Math.max(tempW, tempH) * (0.35 + featherVal * 0.5);
+
+    const grad = mctx.createRadialGradient(cx,cy,r0,cx,cy,r1);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    mctx.fillStyle = grad;
+    mctx.fillRect(0,0,mask.width,mask.height);
+
+    // destination-in untuk membatasi area wajah
+    tctx.globalCompositeOperation = 'destination-in';
+    tctx.drawImage(mask,0,0);
+    tctx.globalCompositeOperation = 'source-over';
+
+    // hitung ukuran gambar akhir di target
+    // scaling berdasarkan perbandingan box source->target
+    const scaleX = tBox.width / sBox.width;
+    const scaleY = tBox.height / sBox.height;
+    const drawW = Math.round(tempW * scaleX);
+    const drawH = Math.round(tempH * scaleY);
+    const drawX = Math.round(tBox.x - sPadding * scaleX);
+    const drawY = Math.round(tBox.y - sPadding * scaleY);
+
+    // draw wajah yang sudah dimask ke canvas target (blending)
+    ctx.save();
+    ctx.globalAlpha = 0.96;
+    ctx.drawImage(temp, drawX, drawY, drawW, drawH);
+    ctx.restore();
+
+    // tampilkan canvas & tombol download
+    canvas.style.display = 'block';
+    downloadBtn().style.display = 'inline-block';
+    setStatus('Selesai — coba unduh atau reset untuk mencoba lagi.', 'success');
   } catch (err) {
     console.error(err);
-    alert('Error: ' + (err.message || err));
+    setStatus('Error: ' + (err.message || err), 'error');
   } finally {
-    swapBtn.disabled = false;
+    showLoading(false);
   }
 }
 
-// wire button
-swapBtn.onclick = async () => {
-  swapBtn.disabled = true;
-  await doWarpSwap();
+// ---------------- utility: download & reset ----------------
+function downloadResult() {
+  const canvas = canvasEl();
+  const link = document.createElement('a');
+  link.href = canvas.toDataURL('image/png');
+  link.download = 'face-swap.png';
+  link.click();
+  setStatus('Gambar diunduh.', 'success');
+}
+
+function resetAll() {
+  sourceImg = null; targetImg = null;
+  sourceInput().value = ''; targetInput().value = '';
+  sourcePreview().innerHTML = ''; targetPreview().innerHTML = '';
+  canvasEl().style.display = 'none';
+  downloadBtn().style.display = 'none';
+  setStatus('Reset selesai.', 'info');
+  checkReadyToSwap();
+}
+
+// ---------------- init ----------------
+window.addEventListener('DOMContentLoaded', () => {
+  loadModels();
+  handleFileInput(sourceInput(), sourcePreview(), 'source');
+  handleFileInput(targetInput(), targetPreview(), 'target');
+
+  swapBtn().addEventListener('click', swapFaces);
+  resetBtn().addEventListener('click', resetAll);
+  downloadBtn().addEventListener('click', downloadResult);
+});
+
+// expose removeImage globally (dipakai oleh tombol remove preview)
+window.removeImage = function(which){
+  if(which==='source') {
+    sourceImg=null; sourcePreview().innerHTML=''; sourceInput().value='';
+  } else {
+    targetImg=null; targetPreview().innerHTML=''; targetInput().value='';
+  }
+  checkReadyToSwap();
 };
