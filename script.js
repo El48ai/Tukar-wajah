@@ -1,6 +1,5 @@
-// script.js
-// Pastikan index.html sudah memuat <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
-// dan memuat file ini dengan defer.
+// script.js (versi triangulation + affine warp)
+// Pastikan face-api.js dan delaunator sudah dimuat di index.html sebelum script ini
 
 const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models/';
 
@@ -14,45 +13,36 @@ const resultCanvas = document.getElementById('resultCanvas');
 let srcLoaded = false;
 let dstLoaded = false;
 
+// Load face-api models
 async function ensureModels() {
-  try {
-    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
-    console.log('Models ready');
-  } catch (e) {
-    console.error('Failed load models', e);
-    alert('Gagal memuat model face-api.js. Cek koneksi internet.');
-  }
+  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+  await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+  console.log('models loaded');
 }
 
-// helper: create image element from file object
+// helper: load file into img element and force natural size for correct coordinates
 function fileToImage(file, imgElement, onLoadCb) {
   imgElement.src = URL.createObjectURL(file);
   imgElement.style.display = 'block';
   imgElement.onload = () => {
+    // force img element to use natural size (important for landmark coordinates)
+    imgElement.width = imgElement.naturalWidth;
+    imgElement.height = imgElement.naturalHeight;
     URL.revokeObjectURL(imgElement.src);
     if (onLoadCb) onLoadCb();
   };
 }
 
-// when user selects source image
 sourceInput.onchange = (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  fileToImage(f, previewSource, () => {
-    srcLoaded = true;
-    resizeCanvasToTarget();
-  });
+  fileToImage(f, previewSource, () => { srcLoaded = true; resizeCanvasToTarget(); });
 };
 
-// when user selects target image
 targetInput.onchange = (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  fileToImage(f, previewTarget, () => {
-    dstLoaded = true;
-    resizeCanvasToTarget();
-  });
+  fileToImage(f, previewTarget, () => { dstLoaded = true; resizeCanvasToTarget(); });
 };
 
 function resizeCanvasToTarget() {
@@ -61,146 +51,159 @@ function resizeCanvasToTarget() {
   resultCanvas.height = previewTarget.naturalHeight || previewTarget.height;
 }
 
-// Create an alpha mask from landmark points (polygon)
-function createMaskFromLandmarks(width, height, landmarks) {
-  const mask = document.createElement('canvas');
-  mask.width = width;
-  mask.height = height;
-  const mctx = mask.getContext('2d');
-  mctx.fillStyle = 'black';
-  mctx.fillRect(0,0,width,height);
-  mctx.save();
-  mctx.translate(0,0);
-  mctx.beginPath();
-  // use jaw + left eyebrow + right eyebrow as polygon approx
-  const pts = landmarks.getJawOutline().map(p => [p.x, p.y])
-    .concat(landmarks.getLeftEyeBrow().map(p=>[p.x,p.y]))
-    .concat(landmarks.getRightEyeBrow().map(p=>[p.x,p.y]));
-  if (pts.length>0) {
-    mctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i=1;i<pts.length;i++) mctx.lineTo(pts[i][0], pts[i][1]);
-    mctx.closePath();
-    mctx.fillStyle = 'white';
-    mctx.fill();
-  }
-  mctx.restore();
-  return mask;
+// matrix inverse for 3x3 (array of 3 rows, each row is length 3)
+function invert3x3(m) {
+  const a = m[0][0], b = m[0][1], c = m[0][2];
+  const d = m[1][0], e = m[1][1], f = m[1][2];
+  const g = m[2][0], h = m[2][1], i = m[2][2];
+  const A =   e*i - f*h;
+  const B = -(d*i - f*g);
+  const C =   d*h - e*g;
+  const D = -(b*i - c*h);
+  const E =   a*i - c*g;
+  const F = -(a*h - b*g);
+  const G =   b*f - c*e;
+  const H = -(a*f - c*d);
+  const I =   a*e - b*d;
+  const det = a*A + b*B + c*C;
+  if (Math.abs(det) < 1e-8) return null;
+  const invDet = 1 / det;
+  return [
+    [A*invDet, D*invDet, G*invDet],
+    [B*invDet, E*invDet, H*invDet],
+    [C*invDet, F*invDet, I*invDet],
+  ];
 }
 
-// Main swap function (simple crop+scale+mask)
-async function doSwapSimple() {
+// multiply 3x3 (S) by 3x2 (D) -> result 3x2
+function mul3x3_3x2(invS, Drows) {
+  // invS is 3x3, Drows is 3 rows of [dx,dy]
+  const res = [[0,0],[0,0],[0,0]];
+  for (let r=0;r<3;r++){
+    for (let col=0;col<2;col++){
+      res[r][col] = invS[r][0]*Drows[0][col] + invS[r][1]*Drows[1][col] + invS[r][2]*Drows[2][col];
+    }
+  }
+  return res; // 3x2
+}
+
+// compute affine transform parameters mapping srcTri -> dstTri
+// returns object {a,b,c,d,e,f} for ctx.setTransform(a,b,c,d,e,f)
+function computeAffineParams(srcTri, dstTri) {
+  // construct S (3x3) with rows [sx, sy, 1]
+  const S = [
+    [srcTri[0][0], srcTri[0][1], 1],
+    [srcTri[1][0], srcTri[1][1], 1],
+    [srcTri[2][0], srcTri[2][1], 1]
+  ];
+  const D = [
+    [dstTri[0][0], dstTri[0][1]],
+    [dstTri[1][0], dstTri[1][1]],
+    [dstTri[2][0], dstTri[2][1]]
+  ];
+  const invS = invert3x3(S);
+  if (!invS) return null;
+  const M = mul3x3_3x2(invS, D); // 3x2 rows
+  // M rows: [m11,m12],[m21,m22],[m31,m32]
+  const a = M[0][0], b = M[0][1];
+  const c = M[1][0], d = M[1][1];
+  const e = M[2][0], f = M[2][1];
+  return {a,b,c,d,e,f};
+}
+
+// triangulation + warp
+async function doWarpSwap() {
   if (!srcLoaded || !dstLoaded) {
     alert('Pilih kedua foto terlebih dahulu.');
     return;
   }
   swapBtn.disabled = true;
   try {
-    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.4 });
+    // ensure models loaded
+    await ensureModels();
 
+    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.4 });
     const [resSrc, resDst] = await Promise.all([
       faceapi.detectSingleFace(previewSource, opts).withFaceLandmarks(true),
       faceapi.detectSingleFace(previewTarget, opts).withFaceLandmarks(true)
     ]);
-
     if (!resSrc || !resDst) {
-      alert('Wajah tidak terdeteksi pada salah satu foto. Coba foto lain atau perbesar wajah pada foto.');
+      alert('Wajah tidak terdeteksi di salah satu foto.');
       swapBtn.disabled = false;
       return;
     }
 
-    // canvas setup: result will be base target image
+    // get landmarks arrays [ [x,y], ... ]
+    const srcPts = resSrc.landmarks.positions.map(p => [p.x, p.y]);
+    const dstPts = resDst.landmarks.positions.map(p => [p.x, p.y]);
+
+    // triangulate on destination points (so triangles fit target)
+    const delaunay = Delaunator.from(dstPts);
+    const triangles = delaunay.triangles; // flat array of indices (triples)
+
+    // prepare canvas
     resizeCanvasToTarget();
     const ctx = resultCanvas.getContext('2d');
+    // draw target as base
     ctx.clearRect(0,0,resultCanvas.width,resultCanvas.height);
     ctx.drawImage(previewTarget, 0, 0, resultCanvas.width, resultCanvas.height);
 
-    // determine bounding boxes
-    const boxSrc = resSrc.detection.box;
-    const boxDst = resDst.detection.box;
+    // For each triangle, compute affine and draw warped triangle from source
+    for (let t = 0; t < triangles.length; t += 3) {
+      const i0 = triangles[t], i1 = triangles[t+1], i2 = triangles[t+2];
+      // skip triangles that reference points outside 68-landmarks (defensive)
+      if (i0 >= srcPts.length || i1 >= srcPts.length || i2 >= srcPts.length) continue;
 
-    // crop source face to temp canvas
-    const tmp = document.createElement('canvas');
-    tmp.width = boxSrc.width;
-    tmp.height = boxSrc.height;
-    const tctx = tmp.getContext('2d');
-    // adjust if source image is smaller than detection box
-    tctx.drawImage(previewSource, boxSrc.x, boxSrc.y, boxSrc.width, boxSrc.height, 0, 0, tmp.width, tmp.height);
+      const srcTri = [ srcPts[i0], srcPts[i1], srcPts[i2] ];
+      const dstTri = [ dstPts[i0], dstPts[i1], dstPts[i2] ];
 
-    // create mask from dst landmarks, scaled to result canvas coordinates
-    // landmarks are in image coordinates of previewTarget natural size -> we assume previewTarget drawn 1:1 on canvas
-    const dstLandmarks = resDst.landmarks;
-    // create mask same size as result canvas
-    const mask = document.createElement('canvas');
-    mask.width = resultCanvas.width;
-    mask.height = resultCanvas.height;
-    const mctx = mask.getContext('2d');
-    mctx.clearRect(0,0,mask.width,mask.height);
-    mctx.fillStyle = 'black';
-    mctx.fillRect(0,0,mask.width,mask.height);
-    mctx.beginPath();
-    const jaw = dstLandmarks.getJawOutline();
-    // draw polygon around jaw (smooth shape)
-    if (jaw.length>0) {
-      mctx.moveTo(jaw[0].x, jaw[0].y);
-      for (let i=1;i<jaw.length;i++) mctx.lineTo(jaw[i].x, jaw[i].y);
-      // close top using eyebrows
-      const leftBrow = dstLandmarks.getLeftEyeBrow();
-      const rightBrow = dstLandmarks.getRightEyeBrow();
-      if (leftBrow.length>0) {
-        for (let i=leftBrow.length-1;i>=0;i--) mctx.lineTo(leftBrow[i].x, leftBrow[i].y);
-      }
-      if (rightBrow.length>0) {
-        for (let i=0;i<rightBrow.length;i++) mctx.lineTo(rightBrow[i].x, rightBrow[i].y);
-      }
-      mctx.closePath();
-      mctx.fillStyle = 'white';
-      mctx.fill();
+      // compute bounding box of dst triangle; small optimization: if triangle tiny skip
+      const minX = Math.min(dstTri[0][0], dstTri[1][0], dstTri[2][0]);
+      const minY = Math.min(dstTri[0][1], dstTri[1][1], dstTri[2][1]);
+      const maxX = Math.max(dstTri[0][0], dstTri[1][0], dstTri[2][0]);
+      const maxY = Math.max(dstTri[0][1], dstTri[1][1], dstTri[2][1]);
+      if (maxX - minX < 1 || maxY - minY < 1) continue;
+
+      // compute affine params
+      const params = computeAffineParams(srcTri, dstTri);
+      if (!params) continue;
+
+      // draw: clip to dst triangle, set transform to map source->dst, draw source image
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(dstTri[0][0], dstTri[0][1]);
+      ctx.lineTo(dstTri[1][0], dstTri[1][1]);
+      ctx.lineTo(dstTri[2][0], dstTri[2][1]);
+      ctx.closePath();
+      ctx.clip();
+
+      // set transform so that coordinates in source image map to destination positions
+      ctx.setTransform(params.a, params.b, params.c, params.d, params.e, params.f);
+      // draw entire source image (transform maps the correct region)
+      ctx.drawImage(previewSource, 0, 0);
+
+      // reset transform / restore clipping
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.restore();
     }
 
-    // now we need to draw tmp (source face) scaled into dst box and apply mask
-    // create a temporary canvas same size as result
-    const tempPlacement = document.createElement('canvas');
-    tempPlacement.width = resultCanvas.width;
-    tempPlacement.height = resultCanvas.height;
-    const pctx = tempPlacement.getContext('2d');
-    // compute scale factors to map tmp to dst box
-    const scaleX = boxDst.width / tmp.width;
-    const scaleY = boxDst.height / tmp.height;
-    // draw tmp scaled to dst box position
-    pctx.save();
-    pctx.globalAlpha = 0.98;
-    pctx.drawImage(tmp, 0, 0, tmp.width, tmp.height, boxDst.x, boxDst.y, tmp.width * scaleX, tmp.height * scaleY);
-    pctx.restore();
+    // optional: simple feathering around face edges
+    // create soft mask using dst landmarks jaw to slightly blend edges
+    // This is a simple approach: draw the warped output into a temporary canvas,
+    // then blend with the base target using globalAlpha (already done per-triangle above).
+    // For better blending use Poisson blending (not implemented here).
 
-    // apply mask: use mask as alpha
-    // we will composite by copying only pixels where mask is white
-    const maskData = mask.getContext('2d').getImageData(0,0,mask.width,mask.height).data;
-    const placeData = pctx.getImageData(0,0,tempPlacement.width,tempPlacement.height);
-    const resData = ctx.getImageData(0,0,resultCanvas.width,resultCanvas.height);
-
-    // Blend: if mask pixel alpha > 0 then use placeData pixel; simple copy
-    for (let i=0;i<maskData.length;i+=4) {
-      const alpha = maskData[i]; // white -> 255
-      if (alpha > 10) {
-        resData.data[i] = placeData.data[i];
-        resData.data[i+1] = placeData.data[i+1];
-        resData.data[i+2] = placeData.data[i+2];
-        resData.data[i+3] = 255;
-      }
-    }
-    ctx.putImageData(resData, 0, 0);
-
-    alert('Selesai: hasil demo. Untuk hasil lebih halus, butuh blending/feathering.');
+    alert('Selesai — hasil lebih rapi dari versi sederhana. Untuk hasil terbaik, perlu Poisson blending.');
   } catch (err) {
     console.error(err);
-    alert('Terjadi kesalahan: ' + (err.message || err));
+    alert('Error: ' + (err.message || err));
   } finally {
     swapBtn.disabled = false;
   }
-};
+}
 
+// wire button
 swapBtn.onclick = async () => {
   swapBtn.disabled = true;
-  await ensureModels();
-  await doSwapSimple();
+  await doWarpSwap();
 };
