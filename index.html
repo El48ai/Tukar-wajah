@@ -1,15 +1,20 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Tukar Wajah AI</title>
 
-    <!-- Style -->
-    <link rel="stylesheet" href="style.css">
+    <!-- PWA manifest (opsional) -->
+    <link rel="manifest" href="manifest.json" />
 
-    <!-- Face API (AI Model) -->
+    <!-- Style -->
+    <link rel="stylesheet" href="style.css" />
+
+    <!-- face-api (AI) dan Delaunator (triangulation) -->
+    <!-- Urutan penting: face-api dulu, lalu delaunator, lalu script.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+    <script defer src="https://unpkg.com/delaunator@5.0.0/delaunator.min.js"></script>
     <script defer src="script.js"></script>
 </head>
 
@@ -23,23 +28,28 @@
         <div class="upload-section">
             <div>
                 <label>Foto Sumber (Wajah Asli):</label>
-                <input type="file" id="sourceImage" accept="image/*">
-                <img id="previewSource" class="preview" />
+                <input type="file" id="sourceImage" accept="image/*" />
+                <img id="previewSource" class="preview" alt="Preview Sumber" />
             </div>
 
             <div>
                 <label>Foto Target (Wajah Akan Diganti):</label>
-                <input type="file" id="targetImage" accept="image/*">
-                <img id="previewTarget" class="preview" />
+                <input type="file" id="targetImage" accept="image/*" />
+                <img id="previewTarget" class="preview" alt="Preview Target" />
             </div>
         </div>
 
-        <button id="swapBtn" class="btn">Tukar Wajah</button>
+        <div class="controls">
+            <button id="swapBtn" class="btn">Tukar Wajah</button>
+            <button id="clearBtn" class="btn" style="background:#555;margin-left:8px;">Bersihkan</button>
+        </div>
 
         <div id="resultContainer">
             <h2>Hasil:</h2>
             <canvas id="resultCanvas"></canvas>
         </div>
+
+        <p class="note">Catatan: model face-api dimuat dari CDN pada pemakaian pertama. Pastikan koneksi internet.</p>
     </main>
 
     <footer>
