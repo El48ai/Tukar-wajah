@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tukar Wajah AI</title>
+
+    <!-- Style -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Face API (AI Model) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+    <script defer src="script.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>Tukar Wajah Web</h1>
+        <p>Aplikasi AI untuk menukar wajah langsung di browser.</p>
+    </header>
+
+    <main>
+        <div class="upload-section">
+            <div>
+                <label>Foto Sumber (Wajah Asli):</label>
+                <input type="file" id="sourceImage" accept="image/*">
+                <img id="previewSource" class="preview" />
+            </div>
+
+            <div>
+                <label>Foto Target (Wajah Akan Diganti):</label>
+                <input type="file" id="targetImage" accept="image/*">
+                <img id="previewTarget" class="preview" />
+            </div>
+        </div>
+
+        <button id="swapBtn" class="btn">Tukar Wajah</button>
+
+        <div id="resultContainer">
+            <h2>Hasil:</h2>
+            <canvas id="resultCanvas"></canvas>
+        </div>
+    </main>
+
+    <footer>
+        <p>© 2025 Tukar Wajah AI — Berjalan tanpa server & tanpa API key.</p>
+    </footer>
+</body>
+</html>
