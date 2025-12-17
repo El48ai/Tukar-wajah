@@ -1,24 +1,23 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Tukar Wajah AI — Face Swap</title>
 
-  <!-- CSS -->
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="./style.css" />
 
-  <!-- face-api (library utama) -->
+  <!-- face-api.js -->
   <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-  <!-- main logic -->
-  <script defer src="script.js"></script>
+  <script defer src="./script.js"></script>
 </head>
+
 <body>
   <div class="page">
     <header class="hero">
       <div class="hero-inner">
-        <h1>🎭 Tukar Wajah AI</h1>
-        <p>Menukar wajah langsung di browser — tanpa server, tanpa API key.</p>
+        <h1>🎭 Tukar Wajah</h1>
+        <p>Proses di browser (tanpa server). Pastikan foto jelas dan wajah menghadap kamera.</p>
       </div>
     </header>
 
@@ -26,7 +25,7 @@
       <section class="upload-grid">
         <div class="card">
           <h3>📸 Foto Sumber</h3>
-          <p>Wajah yang ingin dicopy</p>
+          <p>Wajah yang ingin dipakai</p>
           <label class="file-label">
             Pilih Foto Sumber
             <input id="sourceImage" type="file" accept="image/*" />
@@ -48,21 +47,22 @@
       <section class="controls">
         <div class="left">
           <div class="status" id="statusMessage">Memuat model AI…</div>
-          <div class="loading" id="loading">
+          <div class="loading" id="loading" aria-live="polite">
             <div class="spinner"></div>
-            <span id="loadingText">Tunggu sebentar...</span>
+            <span id="loadingText">Tunggu sebentar…</span>
           </div>
         </div>
 
         <div class="right">
-          <label class="slider-label">Feather intensity:
+          <label class="slider-label">
+            Feather intensity:
             <input id="featherRange" type="range" min="0" max="1" step="0.05" value="0.6" />
           </label>
 
           <div class="buttons">
-            <button id="swapBtn" class="btn primary" disabled>✨ Tukar Wajah</button>
-            <button id="resetBtn" class="btn" >🔄 Reset</button>
-            <button id="downloadBtn" class="btn success" style="display:none">⬇️ Download</button>
+            <button id="swapBtn" class="btn primary" type="button" disabled>✨ Tukar Wajah</button>
+            <button id="resetBtn" class="btn" type="button">🔄 Reset</button>
+            <button id="downloadBtn" class="btn success" type="button" style="display:none">⬇️ Download</button>
           </div>
         </div>
       </section>
@@ -74,7 +74,7 @@
     </main>
 
     <footer class="foot">
-      <small>© 2025 Tukar Wajah AI — Semua proses di browser. Privasi: tidak ada upload ke server.</small>
+      <small>© 2025 Tukar Wajah — Semua proses di browser. Privasi: tidak ada upload ke server.</small>
     </footer>
   </div>
 </body>
