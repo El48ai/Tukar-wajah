@@ -60,8 +60,8 @@ let modelsReady = false;
 
 async function loadModels() {
   try {
-    setLoading(true, "Memuat model AI…");
-    setStatus("Memuat model AI…");
+    setLoading(true, "Memuat komponen…");
+    setStatus("Memuat komponen…");
 
     // IMPORTANT: path relatif untuk GitHub Pages
     const MODEL_URL = "./models";
