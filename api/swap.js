@@ -12,7 +12,7 @@ module.exports = async function handler(req, res) {
   if (!TOKEN) return res.status(500).json({ error: 'Token tidak ada' });
 
   try {
-    const createRes = await fetch('https://api.replicate.com/v1/models/easel/advanced-face-swap/predictions', {
+    const createRes = await fetch('https://api.replicate.com/v1/predictions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${TOKEN}`,
@@ -20,10 +20,10 @@ module.exports = async function handler(req, res) {
         'Prefer': 'wait=60',
       },
       body: JSON.stringify({
+        version: '278a81e7ebb22db98bcba54de985d22cc1abeead2754eb1f2af717247be69b34',
         input: {
+          input_image: target_image,
           swap_image: source_image,
-          target_image: target_image,
-          hair_source: 'target',
         }
       })
     });
@@ -33,8 +33,8 @@ module.exports = async function handler(req, res) {
     if (prediction.status === 'succeeded') return res.status(200).json({ output: prediction.output });
 
     const id = prediction.id;
-    for (let i = 0; i < 40; i++) {
-      await new Promise(r => setTimeout(r, 3000));
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000));
       const p = await (await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
         headers: { 'Authorization': `Bearer ${TOKEN}` }
       })).json();
