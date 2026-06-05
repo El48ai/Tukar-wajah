@@ -7,47 +7,41 @@ module.exports = async function handler(req, res) {
 
   const { source_image, target_image } = req.body;
   if (!source_image || !target_image) {
-    return res.status(400).json({ error: 'source_image dan target_image wajib diisi' });
+    return res.status(400).json({ error: 'Foto wajib diisi' });
   }
 
-  const REPLICATE_TOKEN = process.env.REPLICATE_API_TOKEN;
-  if (!REPLICATE_TOKEN) {
-    return res.status(500).json({ error: 'API token tidak ditemukan' });
-  }
+  const TOKEN = process.env.REPLICATE_API_TOKEN;
+  if (!TOKEN) return res.status(500).json({ error: 'Token tidak ada' });
 
   try {
-    const createRes = await fetch('https://api.replicate.com/v1/models/codeplugtech/face-swap/predictions', {
+    const createRes = await fetch('https://api.replicate.com/v1/predictions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${REPLICATE_TOKEN}`,
+        'Authorization': `Bearer ${TOKEN}`,
         'Content-Type': 'application/json',
         'Prefer': 'wait=60',
       },
       body: JSON.stringify({
+        version: 'cc36d3f27e37ee6a83a90d0b7e7d71f43a9d2e1b72a0d1c5e2e1b5e9e9b0b0b',
         input: {
-          input_image: target_image,
-          swap_image: source_image,
+          target_image: target_image,
+          source_image: source_image,
         }
       })
     });
 
     const prediction = await createRes.json();
-    if (!createRes.ok) {
-      return res.status(createRes.status).json({ error: prediction.detail || 'Replicate error' });
-    }
-    if (prediction.status === 'succeeded') {
-      return res.status(200).json({ output: prediction.output });
-    }
+    if (!createRes.ok) return res.status(400).json({ error: JSON.stringify(prediction) });
+    if (prediction.status === 'succeeded') return res.status(200).json({ output: prediction.output });
 
-    const predId = prediction.id;
+    const id = prediction.id;
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 2000));
-      const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${predId}`, {
-        headers: { 'Authorization': `Bearer ${REPLICATE_TOKEN}` }
-      });
-      const poll = await pollRes.json();
-      if (poll.status === 'succeeded') return res.status(200).json({ output: poll.output });
-      if (poll.status === 'failed') return res.status(500).json({ error: poll.error || 'Gagal' });
+      const p = await (await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
+        headers: { 'Authorization': `Bearer ${TOKEN}` }
+      })).json();
+      if (p.status === 'succeeded') return res.status(200).json({ output: p.output });
+      if (p.status === 'failed') return res.status(500).json({ error: p.error });
     }
     return res.status(504).json({ error: 'Timeout' });
   } catch (err) {
