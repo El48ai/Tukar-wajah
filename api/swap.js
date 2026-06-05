@@ -21,8 +21,9 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         input: {
+          swap_image: source_image,
           target_image: target_image,
-          source_image: source_image,
+          hair_source: 'target',
         }
       })
     });
