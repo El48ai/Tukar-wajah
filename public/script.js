@@ -22,13 +22,9 @@ const el = {
   quotaBadge:    $('quotaBadge'),
 };
 
-// ═══════════════════════════════════════════
-//  KUOTA — server-side tracking
-// ═══════════════════════════════════════════
 const LICENSE_KEY = 'tw_license';
 const FREE_LIMIT  = 5;
 
-// State kuota (diambil dari server saat init)
 let quotaState = { canSwap: true, used: 0, remaining: FREE_LIMIT, isPro: false };
 
 const license = {
@@ -38,9 +34,7 @@ const license = {
   has:  ()    => !!localStorage.getItem(LICENSE_KEY),
 };
 
-// Cek kuota dari server (bukan localStorage)
 async function fetchQuota() {
-  // Kalau ada lisensi di localStorage, verifikasi ulang ke server
   if (license.has()) {
     try {
       const res  = await fetch('/api/validate-code', {
@@ -54,13 +48,11 @@ async function fetchQuota() {
         renderQuotaBadge();
         return;
       } else {
-        // Lisensi tidak valid lagi (expired/habis), hapus
         license.clear();
       }
     } catch (_) {}
   }
 
-  // Cek kuota gratis dari server
   try {
     const res  = await fetch('/api/check-quota', {
       method: 'POST',
@@ -70,7 +62,6 @@ async function fetchQuota() {
     const data = await res.json();
     quotaState = { ...data, isPro: false };
   } catch (_) {
-    // Fallback ke localStorage kalau server error
     const used = parseInt(localStorage.getItem('tw_free_used') || '0', 10);
     quotaState = {
       canSwap:   used < FREE_LIMIT,
@@ -82,7 +73,6 @@ async function fetchQuota() {
   renderQuotaBadge();
 }
 
-// Consume kuota di server setelah swap sukses
 async function consumeQuota() {
   if (quotaState.isPro) return true;
   try {
@@ -97,13 +87,11 @@ async function consumeQuota() {
       quotaState.remaining = data.remaining;
       quotaState.canSwap   = data.remaining > 0;
       renderQuotaBadge();
-      // Sync localStorage sebagai fallback
       localStorage.setItem('tw_free_used', data.used);
       return true;
     }
     return false;
   } catch (_) {
-    // Fallback
     const used = parseInt(localStorage.getItem('tw_free_used') || '0', 10) + 1;
     localStorage.setItem('tw_free_used', used);
     quotaState.used      = used;
@@ -117,22 +105,29 @@ async function consumeQuota() {
 function renderQuotaBadge() {
   if (!el.quotaBadge) return;
   if (quotaState.isPro) {
-    el.quotaBadge.textContent = '🔓 Pro — Unlimited';
-    el.quotaBadge.style.color       = '#10b981';
+    el.quotaBadge.textContent   = '🔓 Pro — Unlimited';
+    el.quotaBadge.style.color   = '#10b981';
     el.quotaBadge.style.borderColor = 'rgba(16,185,129,.4)';
+    el.quotaBadge.style.cursor  = 'default';
+    el.quotaBadge.onclick       = null;
   } else {
     const r = quotaState.remaining;
-    el.quotaBadge.textContent = r > 0
-      ? `✨ ${r} foto gratis tersisa`
-      : '🔒 Kuota habis — Upgrade Pro';
-    el.quotaBadge.style.color       = r > 0 ? '#a78bfa' : '#ef4444';
-    el.quotaBadge.style.borderColor = r > 0
-      ? 'rgba(167,139,250,.4)'
-      : 'rgba(239,68,68,.4)';
+    if (r > 0) {
+      el.quotaBadge.textContent   = `✨ ${r} foto gratis tersisa`;
+      el.quotaBadge.style.color   = '#a78bfa';
+      el.quotaBadge.style.borderColor = 'rgba(167,139,250,.4)';
+      el.quotaBadge.style.cursor  = 'default';
+      el.quotaBadge.onclick       = null;
+    } else {
+      el.quotaBadge.textContent   = '🔒 Kuota habis — Upgrade Pro';
+      el.quotaBadge.style.color   = '#ef4444';
+      el.quotaBadge.style.borderColor = 'rgba(239,68,68,.4)';
+      el.quotaBadge.style.cursor  = 'pointer';
+      el.quotaBadge.onclick       = () => showPaywall();
+    }
   }
 }
 
-// ── Modal paywall ─────────────────────────
 window.showPaywall = function () {
   $('paywallModal').style.display = 'flex';
 };
@@ -178,7 +173,6 @@ window.validateCode = async function (code) {
   }
 };
 
-// ── Toast ─────────────────────────────────
 function showToast(msg) {
   let t = $('_toast');
   if (!t) {
@@ -199,9 +193,6 @@ function showToast(msg) {
   t._t = setTimeout(() => { t.style.opacity = '0'; }, 3000);
 }
 
-// ═══════════════════════════════════════════
-//  UI HELPERS
-// ═══════════════════════════════════════════
 function setStatus(msg, state = 'loading') {
   el.status.textContent  = msg;
   el.statusDot.className = 'status-dot ' + state;
@@ -229,9 +220,6 @@ function fileToBase64(file) {
   });
 }
 
-// ═══════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════
 let sourceB64 = null;
 let targetB64 = null;
 
@@ -239,19 +227,14 @@ function maybeEnableSwap() {
   el.swapBtn.disabled = !(sourceB64 && targetB64);
 }
 
-// ═══════════════════════════════════════════
-//  MAIN SWAP
-// ═══════════════════════════════════════════
 async function doSwap() {
   if (!sourceB64 || !targetB64) return;
 
-  // Cek kuota dari state (sudah diambil dari server saat init)
   if (!quotaState.canSwap && !quotaState.isPro) {
     showPaywall();
     return;
   }
 
-  // Verifikasi sekali lagi ke server sebelum proses (anti-bypass)
   if (!quotaState.isPro) {
     try {
       const res  = await fetch('/api/check-quota', {
@@ -266,7 +249,7 @@ async function doSwap() {
         showPaywall();
         return;
       }
-    } catch (_) { /* lanjut kalau server error */ }
+    } catch (_) {}
   }
 
   el.swapBtn.disabled          = true;
@@ -298,7 +281,6 @@ async function doSwap() {
     const onSuccess = async () => {
       setStatus('Selesai ✅  Klik Download untuk menyimpan.', 'ready');
       setLoading(false);
-      // Consume kuota di server SETELAH sukses
       if (!quotaState.isPro) await consumeQuota();
       maybeEnableSwap();
     };
@@ -338,9 +320,6 @@ async function doSwap() {
   }
 }
 
-// ═══════════════════════════════════════════
-//  EVENTS
-// ═══════════════════════════════════════════
 el.sourceInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0]; if (!file) return;
   sourceB64 = await fileToBase64(file);
@@ -381,7 +360,6 @@ el.downloadBtn.addEventListener('click', () => {
   }
 });
 
-// ── Init: ambil kuota dari server ─────────
 (async () => {
   setStatus('Siap ✅  Pilih 2 foto lalu klik Tukar Wajah.', 'ready');
   await fetchQuota();
