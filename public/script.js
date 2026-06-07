@@ -1,8 +1,3 @@
-// ═══════════════════════════════════════════
-//  script.js — Tukar Wajah AI
-//  Fix: kuota server-side (anti-bypass), validasi Pro lewat server
-// ═══════════════════════════════════════════
-
 const $ = (id) => document.getElementById(id);
 
 const el = {
@@ -25,13 +20,14 @@ const el = {
 const LICENSE_KEY = 'tw_license';
 const FREE_LIMIT  = 5;
 
-let quotaState = { canSwap: true, used: 0, remaining: FREE_LIMIT, isPro: false };
+// State: isPro, swapsRemaining (null = unlimited lama, number = paket)
+let quotaState = { canSwap: true, used: 0, remaining: FREE_LIMIT, isPro: false, swapsRemaining: null };
 
 const license = {
-  get:  ()    => localStorage.getItem(LICENSE_KEY) || '',
-  save: (code)=> localStorage.setItem(LICENSE_KEY, code),
-  clear:()    => localStorage.removeItem(LICENSE_KEY),
-  has:  ()    => !!localStorage.getItem(LICENSE_KEY),
+  get:   ()     => localStorage.getItem(LICENSE_KEY) || '',
+  save:  (code) => localStorage.setItem(LICENSE_KEY, code),
+  clear: ()     => localStorage.removeItem(LICENSE_KEY),
+  has:   ()     => !!localStorage.getItem(LICENSE_KEY),
 };
 
 async function fetchQuota() {
@@ -44,7 +40,11 @@ async function fetchQuota() {
       });
       const data = await res.json();
       if (data.valid) {
-        quotaState = { canSwap: true, used: 0, remaining: 999, isPro: true };
+        quotaState = {
+          canSwap:        true,
+          isPro:          true,
+          swapsRemaining: data.swaps_remaining,
+        };
         renderQuotaBadge();
         return;
       } else {
@@ -60,21 +60,44 @@ async function fetchQuota() {
       body: JSON.stringify({ action: 'check' }),
     });
     const data = await res.json();
-    quotaState = { ...data, isPro: false };
+    quotaState = { ...data, isPro: false, swapsRemaining: null };
   } catch (_) {
     const used = parseInt(localStorage.getItem('tw_free_used') || '0', 10);
     quotaState = {
-      canSwap:   used < FREE_LIMIT,
+      canSwap:        used < FREE_LIMIT,
       used,
-      remaining: Math.max(0, FREE_LIMIT - used),
-      isPro:     false,
+      remaining:      Math.max(0, FREE_LIMIT - used),
+      isPro:          false,
+      swapsRemaining: null,
     };
   }
   renderQuotaBadge();
 }
 
 async function consumeQuota() {
-  if (quotaState.isPro) return true;
+  if (quotaState.isPro) {
+    // Paket swap — kurangi 1 di server
+    if (quotaState.swapsRemaining !== null) {
+      try {
+        const res  = await fetch('/api/validate-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: license.get(), consumeSwap: true }),
+        });
+        const data = await res.json();
+        quotaState.swapsRemaining = data.swaps_remaining;
+        quotaState.canSwap        = data.swaps_remaining > 0;
+        renderQuotaBadge();
+      } catch (_) {
+        quotaState.swapsRemaining = Math.max(0, (quotaState.swapsRemaining || 0) - 1);
+        quotaState.canSwap        = quotaState.swapsRemaining > 0;
+        renderQuotaBadge();
+      }
+    }
+    return true;
+  }
+
+  // Kuota gratis
   try {
     const res  = await fetch('/api/check-quota', {
       method: 'POST',
@@ -86,8 +109,8 @@ async function consumeQuota() {
       quotaState.used      = data.used;
       quotaState.remaining = data.remaining;
       quotaState.canSwap   = data.remaining > 0;
-      renderQuotaBadge();
       localStorage.setItem('tw_free_used', data.used);
+      renderQuotaBadge();
       return true;
     }
     return false;
@@ -104,26 +127,41 @@ async function consumeQuota() {
 
 function renderQuotaBadge() {
   if (!el.quotaBadge) return;
+  el.quotaBadge.style.cursor  = 'default';
+  el.quotaBadge.onclick       = null;
+
   if (quotaState.isPro) {
-    el.quotaBadge.textContent   = '🔓 Pro — Unlimited';
-    el.quotaBadge.style.color   = '#10b981';
-    el.quotaBadge.style.borderColor = 'rgba(16,185,129,.4)';
-    el.quotaBadge.style.cursor  = 'default';
-    el.quotaBadge.onclick       = null;
+    const sr = quotaState.swapsRemaining;
+    if (sr !== null) {
+      // Paket swap
+      if (sr > 0) {
+        el.quotaBadge.textContent       = `🔓 Pro — ${sr} swap tersisa`;
+        el.quotaBadge.style.color       = '#10b981';
+        el.quotaBadge.style.borderColor = 'rgba(16,185,129,.4)';
+      } else {
+        el.quotaBadge.textContent       = '🔒 Swap habis — Top-up sekarang';
+        el.quotaBadge.style.color       = '#ef4444';
+        el.quotaBadge.style.borderColor = 'rgba(239,68,68,.4)';
+        el.quotaBadge.style.cursor      = 'pointer';
+        el.quotaBadge.onclick           = () => showPaywall();
+      }
+    } else {
+      el.quotaBadge.textContent       = '🔓 Pro — Unlimited';
+      el.quotaBadge.style.color       = '#10b981';
+      el.quotaBadge.style.borderColor = 'rgba(16,185,129,.4)';
+    }
   } else {
     const r = quotaState.remaining;
     if (r > 0) {
-      el.quotaBadge.textContent   = `✨ ${r} foto gratis tersisa`;
-      el.quotaBadge.style.color   = '#a78bfa';
+      el.quotaBadge.textContent       = `✨ ${r} foto gratis tersisa`;
+      el.quotaBadge.style.color       = '#a78bfa';
       el.quotaBadge.style.borderColor = 'rgba(167,139,250,.4)';
-      el.quotaBadge.style.cursor  = 'default';
-      el.quotaBadge.onclick       = null;
     } else {
-      el.quotaBadge.textContent   = '🔒 Kuota habis — Upgrade Pro';
-      el.quotaBadge.style.color   = '#ef4444';
+      el.quotaBadge.textContent       = '🔒 Kuota habis — Upgrade Pro';
+      el.quotaBadge.style.color       = '#ef4444';
       el.quotaBadge.style.borderColor = 'rgba(239,68,68,.4)';
-      el.quotaBadge.style.cursor  = 'pointer';
-      el.quotaBadge.onclick       = () => showPaywall();
+      el.quotaBadge.style.cursor      = 'pointer';
+      el.quotaBadge.onclick           = () => showPaywall();
     }
   }
 }
@@ -157,11 +195,19 @@ window.validateCode = async function (code) {
 
     if (data.valid) {
       license.save(code);
-      quotaState = { canSwap: true, used: 0, remaining: 999, isPro: true };
+      quotaState = {
+        canSwap:        true,
+        isPro:          true,
+        swapsRemaining: data.swaps_remaining,
+      };
       hidePaywall();
       renderQuotaBadge();
       maybeEnableSwap();
-      showToast('✅ Kode valid! Akses Pro diaktifkan.');
+      const sr  = data.swaps_remaining;
+      const msg = sr !== null
+        ? `✅ Kode valid! ${sr} swap siap digunakan.`
+        : '✅ Kode valid! Akses Pro diaktifkan.';
+      showToast(msg);
     } else {
       errEl.textContent = data.error || 'Kode tidak valid.';
     }
@@ -199,7 +245,7 @@ function setStatus(msg, state = 'loading') {
 }
 
 function setLoading(on, text = 'Memproses…') {
-  el.loadingBar.className = 'loading-bar' + (on ? ' show' : '');
+  el.loadingBar.className    = 'loading-bar' + (on ? ' show' : '');
   el.loadingText.textContent = text;
 }
 
@@ -230,7 +276,9 @@ function maybeEnableSwap() {
 async function doSwap() {
   if (!sourceB64 || !targetB64) return;
 
-  if (!quotaState.canSwap && !quotaState.isPro) {
+  // Cek sisa swap
+  const proHabis = quotaState.isPro && quotaState.swapsRemaining !== null && quotaState.swapsRemaining <= 0;
+  if ((!quotaState.canSwap && !quotaState.isPro) || proHabis) {
     showPaywall();
     return;
   }
@@ -244,7 +292,7 @@ async function doSwap() {
       });
       const data = await res.json();
       if (!data.canSwap) {
-        quotaState = { ...data, isPro: false };
+        quotaState = { ...data, isPro: false, swapsRemaining: null };
         renderQuotaBadge();
         showPaywall();
         return;
@@ -264,10 +312,7 @@ async function doSwap() {
     const res = await fetch('/api/swap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source_image: sourceB64,
-        target_image: targetB64,
-      }),
+      body: JSON.stringify({ source_image: sourceB64, target_image: targetB64 }),
     });
 
     const data = await res.json();
@@ -281,7 +326,7 @@ async function doSwap() {
     const onSuccess = async () => {
       setStatus('Selesai ✅  Klik Download untuk menyimpan.', 'ready');
       setLoading(false);
-      if (!quotaState.isPro) await consumeQuota();
+      await consumeQuota();
       maybeEnableSwap();
     };
 
