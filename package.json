@@ -1,7 +1,0 @@
-{
-  "name": "tukar-wajah",
-  "version": "1.0.0",
-  "dependencies": {
-    "firebase-admin": "^13.10.0"
-  }
-}
