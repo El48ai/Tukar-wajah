@@ -1,8 +1,3 @@
-// ═══════════════════════════════════════════
-//  api/validate-code.js
-//  Validasi kode lisensi Pro via Firestore
-//  Fix: FieldValue.increment (anti race condition)
-// ═══════════════════════════════════════════
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
 
@@ -25,7 +20,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { code, checkOnly } = req.body;
+  const { code, checkOnly, consumeSwap } = req.body;
   if (!code) return res.status(400).json({ valid: false, error: 'Kode wajib diisi' });
 
   try {
@@ -42,11 +37,27 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ valid: false, error: 'Kode sudah kadaluarsa' });
     }
 
-    if (data.max_uses && (data.used_count || 0) >= data.max_uses) {
-      return res.status(200).json({ valid: false, error: 'Kode sudah mencapai batas penggunaan' });
+    const swapsRemaining = data.swaps_remaining ?? null;
+
+    // Kalau paket swap, cek sisa swap
+    if (swapsRemaining !== null && swapsRemaining <= 0) {
+      return res.status(200).json({ valid: false, error: 'Swap habis! Hubungi kami untuk top-up.' });
     }
 
-    // checkOnly: hanya verifikasi, tidak increment (dipakai saat page load)
+    // consumeSwap: kurangi 1 swap setelah berhasil
+    if (consumeSwap && swapsRemaining !== null) {
+      await docRef.update({
+        swaps_remaining: FieldValue.increment(-1),
+        last_used_at:    FieldValue.serverTimestamp(),
+      });
+      return res.status(200).json({
+        valid:           true,
+        plan:            data.plan || 'pro',
+        swaps_remaining: swapsRemaining - 1,
+      });
+    }
+
+    // checkOnly: verifikasi tanpa kurangi
     if (!checkOnly) {
       await docRef.update({
         used_count:   FieldValue.increment(1),
@@ -55,9 +66,10 @@ module.exports = async function handler(req, res) {
     }
 
     return res.status(200).json({
-      valid:   true,
-      plan:    data.plan || 'pro',
-      message: 'Kode valid! Akses Pro diaktifkan.',
+      valid:           true,
+      plan:            data.plan || 'pro',
+      swaps_remaining: swapsRemaining,
+      message:         'Kode valid! Akses Pro diaktifkan.',
     });
 
   } catch (err) {
