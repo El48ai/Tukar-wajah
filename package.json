@@ -1,0 +1,8 @@
+{
+  "name": "tukar-wajah",
+  "version": "1.1.0",
+  "description": "Aplikasi face swap AI berbasis web dengan sistem lisensi Pro",
+  "dependencies": {
+    "firebase-admin": "^13.10.0"
+  }
+}
